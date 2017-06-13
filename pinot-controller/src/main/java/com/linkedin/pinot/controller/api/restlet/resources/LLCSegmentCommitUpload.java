@@ -21,9 +21,12 @@ import com.linkedin.pinot.common.restlet.swagger.HttpVerb;
 import com.linkedin.pinot.common.restlet.swagger.Paths;
 import com.linkedin.pinot.common.restlet.swagger.Summary;
 import com.linkedin.pinot.common.utils.LLCSegmentName;
+import com.linkedin.pinot.controller.helix.core.realtime.SegmentCompletionManager;
 import java.io.File;
+import java.io.FileFilter;
 import java.io.IOException;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.fileupload.disk.DiskFileItemFactory;
 import org.apache.commons.io.FileUtils;
@@ -36,6 +39,7 @@ import org.slf4j.LoggerFactory;
 
 public class LLCSegmentCommitUpload extends PinotSegmentUploadRestletResource {
   private static Logger LOGGER = LoggerFactory.getLogger(LLCSegmentCommitUpload.class);
+  private String _generatedSegmentName;
 
   public LLCSegmentCommitUpload()
       throws IOException {
@@ -46,7 +50,6 @@ public class LLCSegmentCommitUpload extends PinotSegmentUploadRestletResource {
   @Description("Uploads an LLC segment using split commit")
   @Summary("Uploads an LLC segment using split commit")
   @Paths({"/" + SegmentCompletionProtocol.MSG_TYPE_SEGMENT_UPLOAD})
-  // TODO: TInclude the generated file name in the response to the server
   public Representation post(Representation entity) {
     SegmentCompletionProtocol.Request.Params params = SegmentCompletionUtils.extractParams(getReference());
     if (params == null) {
@@ -58,10 +61,18 @@ public class LLCSegmentCommitUpload extends PinotSegmentUploadRestletResource {
     boolean success = uploadSegment(params.getInstanceId(), params.getSegmentName(), params.getOffset());
     if (success) {
       LOGGER.info("Uploaded segment successfully");
-      return new StringRepresentation(SegmentCompletionProtocol.ControllerResponseStatus.UPLOAD_SUCCESS.toString());
+      return new StringRepresentation(new SegmentCompletionProtocol.Response.Params()
+          .withOffset(params.getOffset())
+          .withSplitCommit(true)
+          .withSegmentLocation(_generatedSegmentName)
+          .withStatus(SegmentCompletionProtocol.ControllerResponseStatus.UPLOAD_SUCCESS).toString());
     } else {
       LOGGER.info("Failed to upload segment");
-      return new StringRepresentation(SegmentCompletionProtocol.ControllerResponseStatus.FAILED.toString());
+      return new StringRepresentation(new SegmentCompletionProtocol.Response.Params()
+          .withOffset(params.getOffset())
+          .withSplitCommit(true)
+          .withSegmentLocation(_generatedSegmentName)
+          .withStatus(SegmentCompletionProtocol.ControllerResponseStatus.FAILED).toString());
     }
   }
 
@@ -111,16 +122,15 @@ public class LLCSegmentCommitUpload extends PinotSegmentUploadRestletResource {
 
       final String rawTableName = segmentName.getTableName();
       final File tableDir = new File(baseDataDir, rawTableName);
-      String generatedSegmentFileName = SegmentCompletionUtils.generateSegmentFileName(segmentNameStr, offset, instanceId);
-      final File segmentFile = new File(tableDir, generatedSegmentFileName);
-
-      // Always delete the segment file if it exists for split commit.
+      // For split commit, generate a new segment name with offset, instanceId, and UUID
+      _generatedSegmentName = SegmentCompletionUtils.generateSegmentFileName(segmentNameStr);
+      final File segmentFile = new File(tableDir, _generatedSegmentName);
+      // TODO: Confirm no extra behavior is needed here
       if (segmentFile.exists()) {
-        LOGGER.warn("Segment file {} exists. Replacing with upload from {}", segmentNameStr, instanceId);
-        FileUtils.deleteQuietly(segmentFile);
+        LOGGER.warn("Segment file exists " + segmentFile);
       }
       FileUtils.moveFile(dataFile, segmentFile);
-      LOGGER.info("Segment file " + generatedSegmentFileName);
+      LOGGER.info("Generated segment name " + _generatedSegmentName);
 
       return true;
     } catch (Exception e) {

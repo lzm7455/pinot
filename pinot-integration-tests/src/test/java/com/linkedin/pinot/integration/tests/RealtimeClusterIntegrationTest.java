@@ -110,6 +110,7 @@ public class RealtimeClusterIntegrationTest extends BaseClusterIntegrationTestWi
     rs.close();
 
     waitForRecordCountToStabilizeToExpectedCount(h2RecordCount, timeInFiveMinutes);
+    Thread.sleep(1231231231321321L);
   }
 
   protected int getKafkaBrokerCount() {
